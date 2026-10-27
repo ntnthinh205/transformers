@@ -75,7 +75,15 @@ def generate(model, processor, prompt, image_path=None, max_new_tokens=128):
     if "pixel_values" in inputs:
         inputs["pixel_values"] = inputs["pixel_values"].to(model.dtype)
     outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-    return processor.decode(outputs[0, inputs["input_ids"].shape[-1] :], skip_special_tokens=True)
+    generated_ids = outputs[0, inputs["input_ids"].shape[-1] :]
+    answer = processor.decode(generated_ids, skip_special_tokens=True)
+    print(f"[generation] Finished: {generated_ids.numel()} new tokens.", flush=True)
+    if not answer.strip():
+        raw_text = processor.decode(generated_ids, skip_special_tokens=False)
+        raise RuntimeError(
+            f"Generation returned no visible text. Token IDs: {generated_ids.tolist()}; raw text: {raw_text!r}"
+        )
+    return answer
 
 
 def main():
@@ -93,9 +101,15 @@ def main():
         parser.error("--image requires an existing image file and --prompt")
     if args.max_new_tokens <= 0:
         parser.error("--max-new-tokens must be positive")
+    if args.prompt is not None and not args.prompt.strip():
+        parser.error("--prompt must contain non-whitespace text")
+    print(f"[run] mode={'generate' if args.prompt is not None else 'load-only'}", flush=True)
     model, processor = load_medgemma(args.model_id, args.revision, args.device, args.dtype, args.local_files_only)
-    if args.prompt:
+    if args.prompt is not None:
+        print("[generation] Starting prompt processing and generation...", flush=True)
         print(generate(model, processor, args.prompt, args.image, args.max_new_tokens))
+    else:
+        print("[run] Load complete. No --prompt supplied; generation skipped.", flush=True)
 
 
 if __name__ == "__main__":
